@@ -40,7 +40,7 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
         self.register_buffer("memory_bank", Tensor())
         self.memory_bank: Tensor
 
-    def forward(self, input_tensor: Tensor) -> Tensor | dict[str, Tensor]:
+    def forward(self, input_tensor: Tensor, mask_tensor: Tensor) -> Tensor | dict[str, Tensor]:
         """Return Embedding during training, or a tuple of anomaly map and anomaly score during testing.
 
         Steps performed:
@@ -55,6 +55,20 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
             Tensor | dict[str, Tensor]: Embedding for training,
                 anomaly map and anomaly score for testing.
         """
+        def _mask_to_weight(input_mask, size = [28, 28]):
+            mask_patch = F.interpolate(input_mask, size=size)
+            mask_patch = mask_patch.reshape(1, -1)
+
+            weights = []
+            for item in mask_patch[0]:
+                if item < 0.33:
+                    weights.append(0)
+                elif item < 0.66:
+                    weights.append(1)
+                else:
+                    weights.append(2)
+            return weights
+        
         if self.tiler:
             input_tensor = self.tiler.tile(input_tensor)
 
@@ -69,9 +83,12 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
 
         batch_size, _, width, height = embedding.shape
         embedding = self.reshape_embedding(embedding)
+        
 
         if self.training:
             output = embedding
+            weights = _mask_to_weight(mask_tensor, features[features.keys()[0]].shape[-2:])
+            return output, weights
         else:
             # apply nearest neighbor search
             patch_scores, locations = self.nearest_neighbors(embedding=embedding, n_neighbors=1)
@@ -125,7 +142,7 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
         embedding = embedding.permute(0, 2, 3, 1).reshape(-1, embedding_size)
         return embedding
 
-    def subsample_embedding(self, embedding: Tensor, sampling_ratio: float) -> None:
+    def subsample_embedding(self, embedding: Tensor, sampling_ratio: float, weights: list) -> None:
         """Subsample embedding based on coreset sampling and store to memory.
 
         Args:
@@ -135,8 +152,9 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
 
         # Coreset Subsampling
         sampler = KCenterGreedy(embedding=embedding, sampling_ratio=sampling_ratio)
-        coreset = sampler.sample_coreset()
+        coreset, idxs = sampler.sample_coreset()
         self.memory_bank = coreset
+        self.weights = weights[idxs]
 
     @staticmethod
     def euclidean_dist(x: Tensor, y: Tensor) -> Tensor:
@@ -172,6 +190,7 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
             Tensor: Locations of the nearest neighbor(s).
         """
         distances = self.euclidean_dist(embedding, self.memory_bank)
+        #TODO check distances and self.memory_bank length!
         if n_neighbors == 1:
             # when n_neighbors is 1, speed up computation by using min instead of topk
             patch_scores, locations = distances.min(1)

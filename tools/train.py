@@ -14,6 +14,9 @@ from argparse import ArgumentParser, Namespace
 
 from pytorch_lightning import Trainer, seed_everything
 
+import sys
+sys.path.append('/home/mjuny/workspace/anomalib/src')
+
 from anomalib.config import get_configurable_parameters
 from anomalib.data import get_datamodule
 from anomalib.data.utils import TestSplitMode

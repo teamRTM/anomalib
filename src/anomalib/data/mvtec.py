@@ -152,6 +152,12 @@ def make_mvtec_dataset(
         (samples.split == "test") & (samples.label_index == LabelName.ABNORMAL), "mask_path"
     ] = mask_samples.image_path.values
 
+    # for add fine-tuning for AnoPatchCore
+    anomaly_classes = samples.loc[samples.label != 'good']['label'].unique()
+    for class_name in anomaly_classes:
+        indices = samples.loc[samples.label == class_name].sample(frac=0.2).index
+        samples.loc[indices, "split"] = "train"
+
     # assert that the right mask files are associated with the right test images
     if len(samples.loc[samples.label_index == LabelName.ABNORMAL]):
         assert (
