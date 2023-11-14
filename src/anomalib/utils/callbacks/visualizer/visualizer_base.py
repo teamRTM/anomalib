@@ -37,8 +37,8 @@ class BaseVisualizerCallback(Callback):
         save_images: bool = True,
     ) -> None:
         """Visualizer callback."""
-        if mode not in ("full", "simple"):
-            raise ValueError(f"Unknown visualization mode: {mode}. Please choose one of ['full', 'simple']")
+        if mode not in ("full", "simple", "mask"):
+            raise ValueError(f"Unknown visualization mode: {mode}. Please choose one of ['full', 'simple', 'mask']")
         self.mode = mode
         if task not in (TaskType.CLASSIFICATION, TaskType.DETECTION, TaskType.SEGMENTATION):
             raise ValueError(

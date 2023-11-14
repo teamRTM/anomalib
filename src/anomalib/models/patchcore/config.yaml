@@ -1,7 +1,7 @@
 dataset:
   name: mvtec
   format: mvtec
-  path: ./datasets/MVTec
+  path: ../datasets/mvtec
   task: segmentation
   category: bottle
   train_batch_size: 32
@@ -53,11 +53,11 @@ visualization:
   save_images: True # save images to the file system
   log_images: True # log images to the available loggers (if any)
   image_save_path: null # path to which images will be saved
-  mode: full # options: ["full", "simple"]
+  mode: mask # options: ["full", "simple", "mask"]
 
 project:
   seed: 0
-  path: ./results
+  path: ../patchcore_results
 
 logging:
   logger: [] # options: [comet, tensorboard, wandb, csv] or combinations.

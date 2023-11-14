@@ -15,6 +15,7 @@ import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
 from skimage.segmentation import mark_boundaries
+from skimage import morphology
 
 from anomalib.data import TaskType
 from anomalib.data.utils import read_image
@@ -31,6 +32,7 @@ class ImageResult:
     """Collection of data needed to visualize the predictions for an image."""
 
     image: np.ndarray
+    original_image_size: tuple[int, int]
     pred_score: float
     pred_label: str
     anomaly_map: np.ndarray | None = None
@@ -67,6 +69,7 @@ class VisualizationMode(str, Enum):
 
     FULL = "full"
     SIMPLE = "simple"
+    MASK = "mask"
 
 
 class Visualizer:
@@ -78,8 +81,8 @@ class Visualizer:
     """
 
     def __init__(self, mode: VisualizationMode, task: TaskType) -> None:
-        if mode not in (VisualizationMode.FULL, VisualizationMode.SIMPLE):
-            raise ValueError(f"Unknown visualization mode: {mode}. Please choose one of ['full', 'simple']")
+        if mode not in (VisualizationMode.FULL, VisualizationMode.SIMPLE, VisualizationMode.MASK):
+            raise ValueError(f"Unknown visualization mode: {mode}. Please choose one of ['full', 'simple', 'mask']")
         self.mode = mode
         if task not in (TaskType.CLASSIFICATION, TaskType.DETECTION, TaskType.SEGMENTATION):
             raise ValueError(
@@ -101,6 +104,8 @@ class Visualizer:
             if "image_path" in batch:
                 height, width = batch["image"].shape[-2:]
                 image = read_image(path=batch["image_path"][i], image_size=(height, width))
+                original_image = read_image(path=batch["image_path"][i])
+                original_image_size = original_image.shape[:2]
             elif "video_path" in batch:
                 height, width = batch["original_image"].shape[1:3]
                 image = batch["original_image"][i].squeeze().numpy()
@@ -110,6 +115,7 @@ class Visualizer:
 
             image_result = ImageResult(
                 image=image,
+                original_image_size = original_image_size,
                 pred_score=batch["pred_scores"][i].cpu().numpy().item(),
                 pred_label=batch["pred_labels"][i].cpu().numpy().item(),
                 anomaly_map=batch["anomaly_maps"][i].cpu().numpy() if "anomaly_maps" in batch else None,
@@ -134,6 +140,8 @@ class Visualizer:
             return self._visualize_full(image_result)
         if self.mode == VisualizationMode.SIMPLE:
             return self._visualize_simple(image_result)
+        if self.mode == VisualizationMode.MASK: 
+            return self._visualize_mask(image_result)
         raise ValueError(f"Unknown visualization mode: {self.mode}")
 
     def _visualize_full(self, image_result: ImageResult) -> np.ndarray:
@@ -212,6 +220,26 @@ class Visualizer:
                 image_classified = add_normal_label(image_result.image, 1 - image_result.pred_score)
             return image_classified
         raise ValueError(f"Unknown task type: {self.task}")
+    
+    def _visualize_mask(self, image_result: ImageResult, kernel_size: int = 8) -> np.ndarray:
+        """Generate a mask visualization for an image.
+
+        The mask visualization mode only shows the model's predictions in a single image.
+
+        Args:
+            image_result (ImageResult): GT and Prediction data for a single image.
+
+        Returns:
+            An image showing the mask visualization for the input image.
+        """
+        image_size = image_result.original_image_size
+        
+        pred_mask = image_result.pred_mask.astype(np.uint8)
+        pred_mask = cv2.resize(pred_mask, dsize=(image_size[1], image_size[0]), interpolation=cv2.INTER_AREA)
+        
+        kernel = morphology.disk(kernel_size)
+        pred_mask = morphology.opening(pred_mask, kernel)
+        return pred_mask
 
     @staticmethod
     def show(title: str, image: np.ndarray, delay: int = 0) -> None:
@@ -236,7 +264,8 @@ class Visualizer:
             image (np.ndarray): Image that will be saved to the file system.
         """
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        if len(image.shape) == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         cv2.imwrite(str(file_path), image)
 
 
