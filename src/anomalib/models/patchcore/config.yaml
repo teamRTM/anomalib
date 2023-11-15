@@ -57,7 +57,7 @@ visualization:
 
 project:
   seed: 0
-  path: ../patchcore_results
+  path: ../results/patchcore_results
 
 logging:
   logger: [] # options: [comet, tensorboard, wandb, csv] or combinations.
