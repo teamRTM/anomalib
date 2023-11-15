@@ -77,7 +77,8 @@ CATEGORIES = (
 
 
 def make_mvtec_dataset(
-    root: str | Path, split: str | Split | None = None, extensions: Sequence[str] | None = None
+    root: str | Path, split: str | Split | None = None, extensions: Sequence[str] | None = None,
+    ano_patch_core = None, seed=None
 ) -> DataFrame:
     """Create MVTec AD samples by parsing the MVTec AD data file structure.
 
@@ -153,10 +154,11 @@ def make_mvtec_dataset(
     ] = mask_samples.image_path.values
 
     # for add fine-tuning for AnoPatchCore
-    anomaly_classes = samples.loc[samples.label != 'good']['label'].unique()
-    for class_name in anomaly_classes:
-        indices = samples.loc[samples.label == class_name].sample(frac=0.2).index
-        samples.loc[indices, "split"] = "train"
+    if ano_patch_core:
+        anomaly_classes = samples.loc[samples.label != 'good']['label'].unique()
+        for class_name in anomaly_classes:
+            indices = samples.loc[samples.label == class_name].sample(frac=0.2, random_state=seed).index
+            samples.loc[indices, "split"] = "train"
 
     # assert that the right mask files are associated with the right test images
     if len(samples.loc[samples.label_index == LabelName.ABNORMAL]):
@@ -192,14 +194,19 @@ class MVTecDataset(AnomalibDataset):
         root: Path | str,
         category: str,
         split: str | Split | None = None,
+        ano_patch_core = None,
+        seed = None
     ) -> None:
         super().__init__(task=task, transform=transform)
 
         self.root_category = Path(root) / Path(category)
         self.split = split
+        self.ano_patch_core = ano_patch_core
+        self.seed = seed
 
     def _setup(self) -> None:
-        self.samples = make_mvtec_dataset(self.root_category, split=self.split, extensions=IMG_EXTENSIONS)
+        self.samples = make_mvtec_dataset(self.root_category, split=self.split, extensions=IMG_EXTENSIONS,
+                                          ano_patch_core = self.ano_patch_core, seed = self.seed)
 
 
 class MVTec(AnomalibDataModule):
@@ -247,6 +254,7 @@ class MVTec(AnomalibDataModule):
         test_split_ratio: float = 0.2,
         val_split_mode: ValSplitMode = ValSplitMode.SAME_AS_TEST,
         val_split_ratio: float = 0.5,
+        ano_patch_core = None,
         seed: int | None = None,
     ) -> None:
         super().__init__(
@@ -277,7 +285,8 @@ class MVTec(AnomalibDataModule):
         )
 
         self.train_data = MVTecDataset(
-            task=task, transform=transform_train, split=Split.TRAIN, root=root, category=category
+            task=task, transform=transform_train, split=Split.TRAIN, root=root, category=category,
+            ano_patch_core = ano_patch_core, seed=self.seed
         )
         self.test_data = MVTecDataset(
             task=task, transform=transform_eval, split=Split.TEST, root=root, category=category

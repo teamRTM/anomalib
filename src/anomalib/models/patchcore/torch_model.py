@@ -8,6 +8,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+import math
 
 from anomalib.models.components import DynamicBufferModule, FeatureExtractor, KCenterGreedy
 from anomalib.models.patchcore.anomaly_map import AnomalyMapGenerator
@@ -36,6 +37,9 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
         self.feature_extractor = FeatureExtractor(backbone=self.backbone, pre_trained=pre_trained, layers=self.layers)
         self.feature_pooler = torch.nn.AvgPool2d(3, 1, 1)
         self.anomaly_map_generator = AnomalyMapGenerator(input_size=input_size)
+        
+        self.anomaly_features: list[Tensor] = []
+        self.anomaly_feature_indices: list[Tensor] = []
 
         self.register_buffer("memory_bank", Tensor())
         self.memory_bank: Tensor
@@ -57,16 +61,21 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
         """
         def _mask_to_weight(input_mask, size = [28, 28]):
             mask_patch = F.interpolate(input_mask, size=size)
-            mask_patch = mask_patch.reshape(1, -1)
+            mask_patch = mask_patch.reshape(1, -1).squeeze()
 
-            weights = []
-            for item in mask_patch[0]:
-                if item < 0.33:
-                    weights.append(0)
-                elif item < 0.66:
-                    weights.append(1)
-                else:
-                    weights.append(2)
+            
+            weights = torch.tensor([0 for _ in range(mask_patch.shape[-1])])
+            weights[mask_patch > 0.33] = 1
+            weights[mask_patch > 0.66] = 2
+            # weights = []
+            # for item in mask_patch[0]:
+            #     if item < 0.33:
+            #         weights.append(0)
+            #     elif item < 0.66:
+            #         weights.append(1)
+            #     else:
+            #         weights.append(2)
+
             return weights
         
         if self.tiler:
@@ -86,9 +95,11 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
         
 
         if self.training:
-            output = embedding
-            weights = _mask_to_weight(mask_tensor, features[features.keys()[0]].shape[-2:])
-            return output, weights
+            # output = embedding
+            weights = _mask_to_weight(torch.unsqueeze(mask_tensor, dim=1), features[list(features.keys())[0]].shape[-2:])
+            self.anomaly_features.append(embedding[weights != 0])
+            self.anomaly_feature_indices.append(weights[weights != 0])
+            output = embedding[weights == 0]
         else:
             # apply nearest neighbor search
             patch_scores, locations = self.nearest_neighbors(embedding=embedding, n_neighbors=1)
@@ -142,7 +153,7 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
         embedding = embedding.permute(0, 2, 3, 1).reshape(-1, embedding_size)
         return embedding
 
-    def subsample_embedding(self, embedding: Tensor, sampling_ratio: float, weights: list) -> None:
+    def subsample_embedding(self, embedding: Tensor, sampling_ratio: float) -> None:
         """Subsample embedding based on coreset sampling and store to memory.
 
         Args:
@@ -153,8 +164,10 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
         # Coreset Subsampling
         sampler = KCenterGreedy(embedding=embedding, sampling_ratio=sampling_ratio)
         coreset, idxs = sampler.sample_coreset()
-        self.memory_bank = coreset
-        self.weights = weights[idxs]
+        # self.memory_bank = coreset
+        self.memory_bank = torch.cat((coreset, torch.vstack(self.anomaly_features)), 0)
+        # self.memory_bank.extend(torch.vstack(self.anomaly_features))
+        self.anomaly_feature_indices = torch.cat((torch.tensor([0 for _ in range(len(coreset))]), torch.cat(self.anomaly_feature_indices, 0)), 0) #TODO
 
     @staticmethod
     def euclidean_dist(x: Tensor, y: Tensor) -> Tensor:
@@ -194,8 +207,21 @@ class PatchcoreModel(DynamicBufferModule, nn.Module):
         if n_neighbors == 1:
             # when n_neighbors is 1, speed up computation by using min instead of topk
             patch_scores, locations = distances.min(1)
+            #added for AnoPatchCore
+            for idx, location in enumerate(locations):
+                weight = self.anomaly_feature_indices[int(location)]
+                if weight:
+                    patch_scores[idx] *= math.exp(weight)
         else:
             patch_scores, locations = distances.topk(k=n_neighbors, largest=False, dim=1)
+            #added for AnoPatchCore
+            for idx, location in enumerate(locations):
+                weights = [self.anomaly_feature_indices[int(location_item)] for location_item in location]
+            for feature_idx, weight in enumerate(weights):
+                if weight:
+                    # patch_scores[idx][feature_idx] *= math.exp(weight)
+                    patch_scores[idx][feature_idx] = 1/patch_scores[idx][feature_idx]
+
         return patch_scores, locations
 
     def compute_anomaly_score(self, patch_scores: Tensor, locations: Tensor, embedding: Tensor) -> Tensor:

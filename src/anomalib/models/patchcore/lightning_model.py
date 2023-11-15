@@ -54,7 +54,6 @@ class Patchcore(AnomalyModule):
         )
         self.coreset_sampling_ratio = coreset_sampling_ratio
         self.embeddings: list[Tensor] = []
-        self.weights: list[int] = []
 
     def configure_optimizers(self) -> None:
         """Configure optimizers.
@@ -76,14 +75,13 @@ class Patchcore(AnomalyModule):
         del args, kwargs  # These variables are not used.
 
         self.model.feature_extractor.eval()
-        embedding, weight = self.model(batch["image"], batch["mask"])
+        embedding = self.model(batch["image"], batch["mask"])
 
         # NOTE: `self.embedding` appends each batch embedding to
         #   store the training set embedding. We manually append these
         #   values mainly due to the new order of hooks introduced after PL v1.4.0
         #   https://github.com/PyTorchLightning/pytorch-lightning/pull/7357
         self.embeddings.append(embedding)
-        self.weights.extend(weight)
 
     def on_validation_start(self) -> None:
         """Apply subsampling to the embedding collected from the training set."""
@@ -94,7 +92,7 @@ class Patchcore(AnomalyModule):
         embeddings = torch.vstack(self.embeddings)
 
         logger.info("Applying core-set subsampling to get the embedding.")
-        self.model.subsample_embedding(embeddings, self.coreset_sampling_ratio, self.weights)
+        self.model.subsample_embedding(embeddings, self.coreset_sampling_ratio)
 
     def validation_step(self, batch: dict[str, str | Tensor], *args, **kwargs) -> STEP_OUTPUT:
         """Get batch of anomaly maps from input image batch.
@@ -110,7 +108,7 @@ class Patchcore(AnomalyModule):
         del args, kwargs
 
         # Get anomaly maps and predicted scores from the model.
-        output = self.model(batch["image"])
+        output = self.model(batch["image"], batch["mask"])
 
         # Add anomaly maps and predicted scores to the batch.
         batch["anomaly_maps"] = output["anomaly_map"]

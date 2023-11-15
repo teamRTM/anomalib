@@ -75,6 +75,8 @@ def get_datamodule(config: DictConfig | ListConfig) -> AnomalibDataModule:
             test_split_ratio=config.dataset.test_split_ratio,
             val_split_mode=config.dataset.val_split_mode,
             val_split_ratio=config.dataset.val_split_ratio,
+            ano_patch_core=config.dataset.shuffle_normal_in_train,
+            seed = config.project.seed
         )
     elif config.dataset.format.lower() == DataFormat.MVTEC_3D:
         datamodule = MVTec3D(
