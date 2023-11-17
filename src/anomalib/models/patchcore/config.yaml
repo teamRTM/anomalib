@@ -53,7 +53,9 @@ visualization:
   save_images: True # save images to the file system
   log_images: True # log images to the available loggers (if any)
   image_save_path: null # path to which images will be saved
-  mode: mask # options: ["full", "simple", "mask"]
+  mode: 
+    - mask # options: ["full", "simple", "mask"]
+    - anomaly_map # only for anomaly map
 
 project:
   seed: 0

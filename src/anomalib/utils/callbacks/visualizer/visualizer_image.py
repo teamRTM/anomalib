@@ -50,6 +50,7 @@ class ImageVisualizerCallback(BaseVisualizerCallback):
         del trainer, pl_module, batch, batch_idx, dataloader_idx  # These variables are not used.
         assert outputs is not None
 
+        # Save images
         for i, image in enumerate(self.visualizer.visualize_batch(outputs)):
             filename = Path(outputs["image_path"][i])
             if self.save_images:
@@ -57,6 +58,16 @@ class ImageVisualizerCallback(BaseVisualizerCallback):
                 self.visualizer.save(file_path, image)
             if self.show_images:
                 self.visualizer.show(str(filename), image)
+
+        # Save anomaly maps
+        for i, anomaly_map in enumerate(self.visualizer.generate_anomaly_map(outputs)):
+            filename = Path(outputs["image_path"][i])
+            if anomaly_map is not None:
+                anomaly_save_path = Path(str(self.image_save_path).replace("images", "anomaly_maps"))
+                file_path = anomaly_save_path / filename.parent.name / filename.with_suffix(".pickle").name
+                self.visualizer.save_anomaly_map(file_path, anomaly_map)
+            else:
+                break
 
     def on_test_batch_end(
         self,
@@ -81,6 +92,7 @@ class ImageVisualizerCallback(BaseVisualizerCallback):
         del batch, batch_idx, dataloader_idx  # These variables are not used.
         assert outputs is not None
 
+        # Save images
         for i, image in enumerate(self.visualizer.visualize_batch(outputs)):
             if "image_path" in outputs.keys():
                 filename = Path(outputs["image_path"][i])
@@ -98,3 +110,13 @@ class ImageVisualizerCallback(BaseVisualizerCallback):
                 self._add_to_logger(image, pl_module, trainer, filename)
             if self.show_images:
                 self.visualizer.show(str(filename), image)
+
+        # Save anomaly maps
+        for i, anomaly_map in enumerate(self.visualizer.generate_anomaly_map(outputs)):
+            filename = Path(outputs["image_path"][i])
+            if anomaly_map is not None:
+                anomaly_save_path = Path(str(self.image_save_path).replace("images", "anomaly_maps"))
+                file_path = anomaly_save_path / filename.parent.name / filename.with_suffix(".pickle").name
+                self.visualizer.save_anomaly_map(file_path, anomaly_map)
+            else:
+                break
