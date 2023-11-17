@@ -8,9 +8,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Union, List
 
 import cv2
+import pickle
 import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
@@ -80,7 +81,12 @@ class Visualizer:
         task (TaskType): task type "segmentation", "detection" or "classification"
     """
 
-    def __init__(self, mode: VisualizationMode, task: TaskType) -> None:
+    def __init__(self, mode: Union[VisualizationMode, List], task: TaskType) -> None:
+        if len(mode) > 1:
+            self.is_save_anomaly_map = True
+        else:
+            self.is_save_anomaly_map = False
+        mode = mode[0]
         if mode not in (VisualizationMode.FULL, VisualizationMode.SIMPLE, VisualizationMode.MASK):
             raise ValueError(f"Unknown visualization mode: {mode}. Please choose one of ['full', 'simple', 'mask']")
         self.mode = mode
@@ -115,7 +121,7 @@ class Visualizer:
 
             image_result = ImageResult(
                 image=image,
-                original_image_size = original_image_size,
+                original_image_size=original_image_size,
                 pred_score=batch["pred_scores"][i].cpu().numpy().item(),
                 pred_label=batch["pred_labels"][i].cpu().numpy().item(),
                 anomaly_map=batch["anomaly_maps"][i].cpu().numpy() if "anomaly_maps" in batch else None,
@@ -140,7 +146,7 @@ class Visualizer:
             return self._visualize_full(image_result)
         if self.mode == VisualizationMode.SIMPLE:
             return self._visualize_simple(image_result)
-        if self.mode == VisualizationMode.MASK: 
+        if self.mode == VisualizationMode.MASK:
             return self._visualize_mask(image_result)
         raise ValueError(f"Unknown visualization mode: {self.mode}")
 
@@ -220,7 +226,7 @@ class Visualizer:
                 image_classified = add_normal_label(image_result.image, 1 - image_result.pred_score)
             return image_classified
         raise ValueError(f"Unknown task type: {self.task}")
-    
+
     def _visualize_mask(self, image_result: ImageResult, kernel_size: int = 8) -> np.ndarray:
         """Generate a mask visualization for an image.
 
@@ -233,13 +239,19 @@ class Visualizer:
             An image showing the mask visualization for the input image.
         """
         image_size = image_result.original_image_size
-        
+
         pred_mask = image_result.pred_mask.astype(np.uint8)
         pred_mask = cv2.resize(pred_mask, dsize=(image_size[1], image_size[0]), interpolation=cv2.INTER_AREA)
-        
+
         kernel = morphology.disk(kernel_size)
         pred_mask = morphology.opening(pred_mask, kernel)
         return pred_mask
+
+    def generate_anomaly_map(self, batch: dict) -> Iterator[np.ndarray]:
+        """Generate the anomaly map generateor"""
+        batch_size = batch["image"].shape[0]
+        for i in range(batch_size):
+            yield batch["anomaly_maps"][i].cpu().numpy() if self.is_save_anomaly_map else None
 
     @staticmethod
     def show(title: str, image: np.ndarray, delay: int = 0) -> None:
@@ -267,6 +279,12 @@ class Visualizer:
         if len(image.shape) == 3:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         cv2.imwrite(str(file_path), image)
+
+    def save_anomaly_map(self, file_path: Path, anomaly_map: np.ndarray) -> None:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(file_path, "wb") as f:
+            pickle.dump(anomaly_map, f)
+            f.close()
 
 
 class ImageGrid:
